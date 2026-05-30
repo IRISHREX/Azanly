@@ -111,8 +111,34 @@ class AzanViewModel(
     }
 
     // --- Settings and Logs ---
+    val synthBaseFrequency: StateFlow<Double> = repository.synthBaseFrequency
+    val calculationOffsetMinutes: StateFlow<Int> = repository.calculationOffsetMinutes
+    val vibrateOnAlert: StateFlow<Boolean> = repository.vibrateOnAlert
+
     fun setPlaybackVolume(volume: Float) {
         repository.updatePlaybackVolume(volume)
+    }
+
+    fun setSynthBaseFrequency(freq: Double) {
+        repository.updateSynthBaseFrequency(freq)
+        val hzLabel = when (freq) {
+            261.63 -> "Mellow (C4 261Hz)"
+            330.0 -> "Peaceful Chime (E4 330Hz)"
+            392.0 -> "Meditative (G4 392Hz)"
+            440.0 -> "Bright Acoustic (A4 440Hz)"
+            else -> "${freq}Hz"
+        }
+        addSystemLog("Tone profile alternative updated: $hzLabel")
+    }
+
+    fun setCalculationOffsetMinutes(offset: Int) {
+        repository.updateCalculationOffsetMinutes(offset)
+        addSystemLog("Juristic countdown offset modified to: ${if (offset >= 0) "+$offset" else offset} minutes")
+    }
+
+    fun setVibrateOnAlert(enabled: Boolean) {
+        repository.updateVibrateOnAlert(enabled)
+        addSystemLog("Vibe haptics alert setting updated to: $enabled")
     }
 
     fun setOverrideSilent(value: Boolean) {
@@ -199,8 +225,9 @@ class AzanViewModel(
         val targetTime = nextPrayer.second
         val entity = nextPrayer.first
 
-        // Calculate hours/minutes difference
-        var diffMinutes = ChronoUnit.MINUTES.between(now, targetTime)
+        // Calculate hours/minutes difference with safety/juristic offset
+        val offsetMinsVal = calculationOffsetMinutes.value.toLong()
+        var diffMinutes = ChronoUnit.MINUTES.between(now, targetTime) + offsetMinsVal
         if (diffMinutes < 0) {
             // Target is next day (e.g. past Isha, counting down to tomorrow's Fajr)
             diffMinutes += 24 * 60

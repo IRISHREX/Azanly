@@ -41,11 +41,31 @@ class AzanRepository(private val azanDao: AzanDao) {
         _playbackVolume.value = volume.coerceIn(0f, 1f)
     }
 
+    private val _synthBaseFrequency = MutableStateFlow(330.0)
+    val synthBaseFrequency: StateFlow<Double> = _synthBaseFrequency.asStateFlow()
+
+    fun updateSynthBaseFrequency(freq: Double) {
+        _synthBaseFrequency.value = freq
+    }
+
+    private val _calculationOffsetMinutes = MutableStateFlow(0)
+    val calculationOffsetMinutes: StateFlow<Int> = _calculationOffsetMinutes.asStateFlow()
+
+    fun updateCalculationOffsetMinutes(offset: Int) {
+        _calculationOffsetMinutes.value = offset.coerceIn(-15, 15)
+    }
+
+    private val _vibrateOnAlert = MutableStateFlow(true)
+    val vibrateOnAlert: StateFlow<Boolean> = _vibrateOnAlert.asStateFlow()
+
+    fun updateVibrateOnAlert(enabled: Boolean) {
+        _vibrateOnAlert.value = enabled
+    }
+
     // Sound Synthesizer control
     private var synthesizerJob: Job? = null
     private var amplitudeAnimatorJob: Job? = null
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private var audioTrack: AudioTrack? = null
 
     init {
         // Automatically pre-populate default Iqamah timings on first startup if empty
@@ -158,6 +178,7 @@ class AzanRepository(private val azanDao: AzanDao) {
         // Play Synthesized Pure Ambient Chimes (Melodious periodic tones representing Azan)
         synthesizerJob?.cancel()
         synthesizerJob = repositoryScope.launch(Dispatchers.IO) {
+            var track: AudioTrack? = null
             try {
                 val sampleRate = 44100
                 val minBufferSize = AudioTrack.getMinBufferSize(
@@ -166,7 +187,7 @@ class AzanRepository(private val azanDao: AzanDao) {
                     AudioFormat.ENCODING_PCM_16BIT
                 )
                 
-                audioTrack = AudioTrack.Builder()
+                track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -184,16 +205,19 @@ class AzanRepository(private val azanDao: AzanDao) {
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
 
-                audioTrack?.play()
+                track.play()
 
                 val bufferSize = 256
                 val samples = ShortArray(bufferSize)
                 var phase = 0.0
-                val primaryFreq = if (isAzan) 330.0 else 440.0 // Primary frequency (E4 or A4 chime)
-                
                 while (isActive) {
                     val currentAmplitude = _audioAmplitude.value
                     val volumeLevel = _playbackVolume.value
+                    
+                    // Retrieve dynamic selected base frequency (e.g., 261Hz, 330Hz, 392Hz, 440Hz)
+                    val baseFreqSetting = _synthBaseFrequency.value
+                    val primaryFreq = if (isAzan) baseFreqSetting else baseFreqSetting * 1.33
+
                     for (i in 0 until bufferSize) {
                         // Generate a rich, peaceful dual-tone bell/wind chime effect
                         val angle1 = 2.0 * java.lang.Math.PI * primaryFreq / sampleRate
@@ -207,11 +231,23 @@ class AzanRepository(private val azanDao: AzanDao) {
                         samples[i] = (compositeSample * 32767.0 * currentAmplitude * 0.3 * volumeLevel).toInt().toShort()
                         phase += 1.0
                     }
-                    audioTrack?.write(samples, 0, bufferSize)
-                    yield()
+                    val written = track.write(samples, 0, bufferSize)
+                    if (written <= 0) {
+                        // Avoid tight spin-lock in case of write error (e.g., headless or failing audio HAL in container)
+                        delay(60)
+                    } else {
+                        yield()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("AudioTrack", "Synthesizer error: ${e.message}")
+            } finally {
+                try {
+                    track?.stop()
+                    track?.release()
+                } catch (ex: Exception) {
+                    // Ignore safe shutdown errors
+                }
             }
         }
     }
@@ -219,14 +255,5 @@ class AzanRepository(private val azanDao: AzanDao) {
     private fun stopSimulatingAudioStream() {
         amplitudeAnimatorJob?.cancel()
         synthesizerJob?.cancel()
-        repositoryScope.launch(Dispatchers.IO) {
-            try {
-                audioTrack?.stop()
-                audioTrack?.release()
-                audioTrack = null
-            } catch (e: Exception) {
-                // Ignore safe shutdown errors
-            }
-        }
     }
 }

@@ -53,6 +53,9 @@ fun UserDashboard(
     val muteDuringWork by viewModel.muteDuringWorkHours.collectAsState()
     val activeLogs by viewModel.systemAlertLogs.collectAsState()
     val streamLatencyMs by viewModel.streamLatencyMs.collectAsState()
+    val synthBaseFrequency by viewModel.synthBaseFrequency.collectAsState()
+    val calculationOffsetMinutes by viewModel.calculationOffsetMinutes.collectAsState()
+    val vibrateOnAlert by viewModel.vibrateOnAlert.collectAsState()
 
     var showDonationDialog by rememberSaveable { mutableStateOf(false) }
     var soundVolume by rememberSaveable { mutableFloatStateOf(0.8f) }
@@ -623,6 +626,159 @@ fun UserDashboard(
                                 }
                             }
                         }
+                    }
+
+                    HorizontalDivider()
+
+                    // Setting 3: Alternative Tone Preference (Audio Synth customization)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Alternative Audio Chime Frequency Tone",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Choose an alternative acoustic tone for live synthesise chimes on physical hardware:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 14.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                261.63 to "Mellow C4",
+                                330.0 to "Peaceful E4",
+                                392.0 to "Meditative G4",
+                                440.0 to "Bright A4"
+                            ).forEach { (freq, label) ->
+                                val isSelected = synthBaseFrequency == freq
+                                val chipBorderColor = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                val chipBgColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f) else Color.Transparent
+                                val contentColor = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(chipBgColor)
+                                        .clickable {
+                                            viewModel.setSynthBaseFrequency(freq)
+                                        }
+                                        .border(BorderStroke(1.dp, chipBorderColor), RoundedCornerShape(10.dp))
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = contentColor
+                                        )
+                                        Text(
+                                            text = if (isSelected) "● ACTIVE" else "SELECT",
+                                            fontSize = 7.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    // Setting 4: Juristic Calculation Buffer & Safety Offsets
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    text = "Juristic Offset Adjustment",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Offset countdown calculation to match precise Shafi'i / Hanafi municipal schedules locally.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                            
+                            // Interactive Counter Control
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(30.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { 
+                                        viewModel.setCalculationOffsetMinutes(calculationOffsetMinutes - 1)
+                                    },
+                                    modifier = Modifier.size(28.dp).testTag("offset_decrement")
+                                ) {
+                                    Text("-", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                                
+                                Text(
+                                    text = if (calculationOffsetMinutes >= 0) "+${calculationOffsetMinutes}m" else "${calculationOffsetMinutes}m",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.widthIn(min = 36.dp),
+                                    textAlign = TextAlign.Center
+                                )
+
+                                IconButton(
+                                    onClick = { 
+                                        viewModel.setCalculationOffsetMinutes(calculationOffsetMinutes + 1)
+                                    },
+                                    modifier = Modifier.size(28.dp).testTag("offset_increment")
+                                ) {
+                                    Text("+", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    // Setting 5: Rhythmic Haptics & Vib-alert
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = "Vibration Alert & Tactile Haptic Pulses",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Provide silent tactile rhythm pulses alongside audible alerts for stealth notification.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 14.sp
+                            )
+                        }
+
+                        Switch(
+                            checked = vibrateOnAlert,
+                            onCheckedChange = { viewModel.setVibrateOnAlert(it) },
+                            modifier = Modifier.testTag("vibrate_on_alert_switch")
+                        )
                     }
                 }
             }
