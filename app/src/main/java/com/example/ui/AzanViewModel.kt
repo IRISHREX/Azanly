@@ -12,6 +12,7 @@ import com.example.data.local.NoticeEntity
 import com.example.data.repository.AzanRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import com.example.ui.theme.AppTheme
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -25,6 +26,71 @@ class AzanViewModel(
     application: Application,
     private val repository: AzanRepository
 ) : AndroidViewModel(application) {
+
+    // --- Dynamic Theme Selection state ---
+    private val _currentTheme = MutableStateFlow(AppTheme.EMERALD_SPIRIT)
+    val currentTheme: StateFlow<AppTheme> = _currentTheme.asStateFlow()
+
+    fun changeTheme(theme: AppTheme) {
+        _currentTheme.value = theme
+        addSystemLog("Aesthetic active theme changed to: ${theme.displayName}")
+    }
+
+    // --- Spiritual Geo-Location and Time Tracker state ---
+    private val _userLatitude = MutableStateFlow<Double>(30.0444) // Default Cairo
+    val userLatitude: StateFlow<Double> = _userLatitude.asStateFlow()
+
+    private val _userLongitude = MutableStateFlow<Double>(31.2357) // Default Cairo
+    val userLongitude: StateFlow<Double> = _userLongitude.asStateFlow()
+
+    private val _locationName = MutableStateFlow<String>("Cairo, Egypt")
+    val locationName: StateFlow<String> = _locationName.asStateFlow()
+
+    private val _locationMethod = MutableStateFlow<String>("Preset Default")
+    val locationMethod: StateFlow<String> = _locationMethod.asStateFlow()
+
+    private val _qiblaBearing = MutableStateFlow<Double>(135.25) // Accurate bearing for Cairo
+    val qiblaBearing: StateFlow<Double> = _qiblaBearing.asStateFlow()
+
+    private val _systemTimezone = MutableStateFlow<String>(java.util.TimeZone.getDefault().id)
+    val systemTimezone: StateFlow<String> = _systemTimezone.asStateFlow()
+
+    // Sets location and calculates accurate mathematical Qibla bearing using spherical trigonometry
+    fun setCoordinates(lat: Double, lng: Double, name: String, method: String) {
+        _userLatitude.value = lat
+        _userLongitude.value = lng
+        _locationName.value = name
+        _locationMethod.value = method
+        
+        val bearing = calculateCorrectQibla(lat, lng)
+        _qiblaBearing.value = bearing
+        
+        addSystemLog("Location: $name ($method) [${String.format(java.util.Locale.US, "%.4f", lat)}°N, ${String.format(java.util.Locale.US, "%.4f", lng)}°E]. Qibla bearing: ${String.format(java.util.Locale.US, "%.1f", bearing)}°")
+    }
+
+    private fun calculateCorrectQibla(lat: Double, lng: Double): Double {
+        val userLatRad = Math.toRadians(lat)
+        val userLonRad = Math.toRadians(lng)
+        
+        // Kaaba latitude and longitude
+        val kaabaLatRad = Math.toRadians(21.422487)
+        val kaabaLonRad = Math.toRadians(39.826206)
+        
+        val deltaLon = kaabaLonRad - userLonRad
+        
+        val y = Math.sin(deltaLon)
+        val x = Math.cos(userLatRad) * Math.tan(kaabaLatRad) - Math.sin(userLatRad) * Math.cos(deltaLon)
+        
+        var bearing = Math.toDegrees(Math.atan2(y, x))
+        bearing = (bearing + 360) % 360
+        return bearing
+    }
+
+    fun syncSystemTimezone() {
+        val detectedZone = java.util.TimeZone.getDefault().id
+        _systemTimezone.value = detectedZone
+        addSystemLog("Timezone auto-detected: $detectedZone (${java.util.TimeZone.getDefault().displayName})")
+    }
 
     // --- Active App Role & Setting states ---
     private val _appRole = MutableStateFlow(AppRole.USER)
@@ -114,6 +180,43 @@ class AzanViewModel(
     val synthBaseFrequency: StateFlow<Double> = repository.synthBaseFrequency
     val calculationOffsetMinutes: StateFlow<Int> = repository.calculationOffsetMinutes
     val vibrateOnAlert: StateFlow<Boolean> = repository.vibrateOnAlert
+
+    // --- Radio Frequency & P2P Repeating Mesh ---
+    val radioTransmitting: StateFlow<Boolean> = repository.radioTransmitting
+    val radioTransmittedFrequency: StateFlow<Double> = repository.radioTransmittedFrequency
+    val userRadioReceiverEnabled: StateFlow<Boolean> = repository.userRadioReceiverEnabled
+    val userRadioTunedFrequency: StateFlow<Double> = repository.userRadioTunedFrequency
+    val isMeshRepeaterActive: StateFlow<Boolean> = repository.isMeshRepeaterActive
+    val activeMeshNodes: StateFlow<Int> = repository.activeMeshNodes
+    val meshTotalCoverageMeters: StateFlow<Int> = repository.meshTotalCoverageMeters
+
+    fun toggleRadioTransmitting(enabled: Boolean) {
+        repository.toggleRadioTransmitting(enabled)
+        addSystemLog("Mosque FM RF Transmitter " + (if (enabled) "enabled" else "disabled"))
+    }
+
+    fun updateRadioTransmittedFrequency(freq: Double) {
+        repository.updateRadioTransmittedFrequency(freq)
+        addSystemLog("Mosque FM frequency calibrated to: ${freq} MHz")
+    }
+
+    fun toggleUserRadioReceiver(enabled: Boolean) {
+        repository.toggleUserRadioReceiver(enabled)
+        addSystemLog("Mobile FM Antenna Receiver " + (if (enabled) "activated" else "deactivated"))
+    }
+
+    fun updateUserRadioTunedFrequency(freq: Double) {
+        repository.updateUserRadioTunedFrequency(freq)
+    }
+
+    fun toggleMeshRepeater(enabled: Boolean) {
+        repository.toggleMeshRepeater(enabled)
+        if (enabled) {
+            addSystemLog("🚀 Mesh signal relay repeater activated! Rebroadcasting subnetwork frequency.")
+        } else {
+            addSystemLog("Mesh signal relay repeater deactivated.")
+        }
+    }
 
     fun setPlaybackVolume(volume: Float) {
         repository.updatePlaybackVolume(volume)

@@ -40,7 +40,8 @@ class MainActivity : ComponentActivity() {
         )[AzanViewModel::class.java]
 
         setContent {
-            MyApplicationTheme {
+            val currentTheme by viewModel.currentTheme.collectAsState()
+            MyApplicationTheme(theme = currentTheme) {
                 MainAppScaffold(viewModel = viewModel)
             }
         }

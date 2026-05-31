@@ -162,6 +162,32 @@ fun MaulanaControlsScreen(
     val activeTimings by viewModel.allIqamahTimings.collectAsState()
     val totalDonationsList by viewModel.allDonations.collectAsState()
 
+    // --- Radio Frequency & P2P Repeating Mesh ---
+    val isRadioTransmitting by viewModel.radioTransmitting.collectAsState()
+    val radioTransmittedFreq by viewModel.radioTransmittedFrequency.collectAsState()
+    val activeMeshNodes by viewModel.activeMeshNodes.collectAsState()
+    val meshTotalCoverage by viewModel.meshTotalCoverageMeters.collectAsState()
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var micAllowed by remember {
+        mutableStateOf(
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val micPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        micAllowed = isGranted
+        if (isGranted) {
+            viewModel.triggerLiveAnnouncement("General Mosque Announcement")
+        } else {
+            viewModel.addSystemLog("[Warning] Microphone access denied. Grant mic permission to stream voice.")
+        }
+    }
+
     var showNoticeCreator by remember { mutableStateOf(false) }
     var editTimingTarget by remember { mutableStateOf<IqamahTimingEntity?>(null) }
 
@@ -344,7 +370,11 @@ fun MaulanaControlsScreen(
 
                             Button(
                                 onClick = {
-                                    viewModel.triggerLiveAnnouncement("General Mosque Announcement")
+                                    if (micAllowed) {
+                                        viewModel.triggerLiveAnnouncement("General Mosque Announcement")
+                                    } else {
+                                        micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                    }
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -359,6 +389,208 @@ fun MaulanaControlsScreen(
                                 Text("Live Mic", fontWeight = FontWeight.Bold)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // --- 2b. Mosque FM RF Transmitter & Mesh Repeater Controls ---
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("mosque_transmitter_panel"),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                ),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Radio Icon",
+                                tint = if (isRadioTransmitting) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Column {
+                                Text(
+                                    text = "Mosque FM RF Transmitter",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Low Latency Radio Frequency Broadcasting",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isRadioTransmitting,
+                            onCheckedChange = { viewModel.toggleRadioTransmitting(it) },
+                            modifier = Modifier.testTag("mosque_transmitter_switch")
+                        )
+                    }
+
+                    if (isRadioTransmitting) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.1f MHz", radioTransmittedFreq),
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "TRANSMITTING STREAMS SUCCESSFULLY",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "87.5 MHz",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "CALIBRATE BROADCAST FREQUENCY",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "108.0 MHz",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Slider(
+                                value = radioTransmittedFreq.toFloat(),
+                                onValueChange = { viewModel.updateRadioTransmittedFrequency(Math.round(it * 10.0) / 10.0) },
+                                valueRange = 87.5f..108.0f,
+                                modifier = Modifier.testTag("mosque_frequency_slider")
+                            )
+                        }
+
+                        // Presets
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val presets = listOf(87.9, 92.5, 101.1, 105.7)
+                            presets.forEach { f ->
+                                val isCurrent = radioTransmittedFreq == f
+                                Button(
+                                    onClick = { viewModel.updateRadioTransmittedFrequency(f) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                                        contentColor = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("${f}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        // Live mesh coverage indicators for Maulana
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${activeMeshNodes}",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "Mesh Relay Peers",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${meshTotalCoverage}m",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.tertiary
+                                    )
+                                    Text(
+                                        text = "Accumulated Range",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "Calibrate and activate FM radio channel to broadcast direct zero-latency audio to community receivers. This expands standard indoor subnetwork coverage dynamically.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
                     }
                 }
             }

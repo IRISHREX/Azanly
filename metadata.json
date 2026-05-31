@@ -1,5 +1,5 @@
 {
-  "name": "Azan & Mahalla",
+  "name": "Azanly",
   "description": "A low latency, lightweight localized Azan voice streaming and community notice board system for neighborhood mahallas.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

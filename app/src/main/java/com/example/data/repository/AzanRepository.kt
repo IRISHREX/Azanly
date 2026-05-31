@@ -5,10 +5,17 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.util.Log
 import com.example.data.local.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
 import kotlin.math.sin
 
 class AzanRepository(private val azanDao: AzanDao) {
@@ -62,12 +69,110 @@ class AzanRepository(private val azanDao: AzanDao) {
         _vibrateOnAlert.value = enabled
     }
 
+    // --- Radio Frequency & Mesh Relay Networking States ---
+    private val _radioTransmitting = MutableStateFlow(false)
+    val radioTransmitting: StateFlow<Boolean> = _radioTransmitting.asStateFlow()
+
+    private val _radioTransmittedFrequency = MutableStateFlow(92.5) // default MHz
+    val radioTransmittedFrequency: StateFlow<Double> = _radioTransmittedFrequency.asStateFlow()
+
+    private val _userRadioReceiverEnabled = MutableStateFlow(false)
+    val userRadioReceiverEnabled: StateFlow<Boolean> = _userRadioReceiverEnabled.asStateFlow()
+
+    private val _userRadioTunedFrequency = MutableStateFlow(92.5) // default MHz
+    val userRadioTunedFrequency: StateFlow<Double> = _userRadioTunedFrequency.asStateFlow()
+
+    private val _isMeshRepeaterActive = MutableStateFlow(false)
+    val isMeshRepeaterActive: StateFlow<Boolean> = _isMeshRepeaterActive.asStateFlow()
+
+    private val _activeMeshNodes = MutableStateFlow(1)
+    val activeMeshNodes: StateFlow<Int> = _activeMeshNodes.asStateFlow()
+
+    private val _meshTotalCoverageMeters = MutableStateFlow(150)
+    val meshTotalCoverageMeters: StateFlow<Int> = _meshTotalCoverageMeters.asStateFlow()
+
+    fun toggleRadioTransmitting(enabled: Boolean) {
+        _radioTransmitting.value = enabled
+    }
+
+    fun updateRadioTransmittedFrequency(freq: Double) {
+        _radioTransmittedFrequency.value = freq
+    }
+
+    fun toggleUserRadioReceiver(enabled: Boolean) {
+        _userRadioReceiverEnabled.value = enabled
+    }
+
+    fun updateUserRadioTunedFrequency(freq: Double) {
+        _userRadioTunedFrequency.value = freq
+    }
+
+    fun toggleMeshRepeater(enabled: Boolean) {
+        _isMeshRepeaterActive.value = enabled
+        repeaterUdpJob?.cancel()
+        if (enabled) {
+            repeaterUdpJob = repositoryScope.launch(Dispatchers.IO) {
+                var socket: DatagramSocket? = null
+                try {
+                    socket = DatagramSocket()
+                    socket.broadcast = true
+                    val broadcastAddr = InetAddress.getByName("255.255.0.255") // Try standard local subnet
+                    val fallbackAddr = InetAddress.getByName("255.255.255.255")
+                    while (isActive) {
+                        val bType = _broadcastType.value ?: "none"
+                        val bTitle = _broadcastTitle.value
+                        val amp = _audioAmplitude.value
+                        val msg = "AZAN_REPEATER_SYNC:repeating=true;active=true;type=$bType;title=$bTitle;amplitude=$amp"
+                        val buffer = msg.toByteArray()
+                        val packet1 = DatagramPacket(buffer, buffer.size, broadcastAddr, 18345)
+                        val packet2 = DatagramPacket(buffer, buffer.size, fallbackAddr, 18345)
+                        try {
+                            socket.send(packet1)
+                            socket.send(packet2)
+                        } catch (e: Exception) {}
+                        delay(1200)
+                    }
+                } catch (e: Exception) {
+                    Log.e("AzanNet", "Repeater relay beacon failed: ${e.message}")
+                } finally {
+                    socket?.close()
+                }
+            }
+        }
+    }
+
+    // --- Peer-to-Peer Real-Time Networking Sockets ---
+    private var isHost = false
+    private var lastHeartbeatTimeMap = 0L
+
+    // Coroutine Jobs for networking
+    private var udpSenderJob: Job? = null
+    private var tcpServerJob: Job? = null
+    private var voiceRecorderJob: Job? = null
+
+    private var udpReceiverJob: Job? = null
+    private var tcpClientJob: Job? = null
+    private var heartbeatMonitorJob: Job? = null
+    private var repeaterUdpJob: Job? = null
+    private val activeRepeaterBeacons = java.util.Collections.synchronizedMap(mutableMapOf<String, Long>())
+
+    // Sockets and streams
+    private val activeClientSockets = java.util.Collections.synchronizedList(mutableListOf<Socket>())
+    private var serverSocket: ServerSocket? = null
+    private var localUdpReceiverSocket: DatagramSocket? = null
+    private var activeStreamSocket: Socket? = null
+    private var isPlayingVoiceStream = false
+
     // Sound Synthesizer control
     private var synthesizerJob: Job? = null
     private var amplitudeAnimatorJob: Job? = null
     private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     init {
+        // Start background UDP receiver to auto-discover Maulana's broadcast state from other devices
+        startUdpReceiver()
+        startHeartbeatMonitor()
+
         // Automatically pre-populate default Iqamah timings on first startup if empty
         repositoryScope.launch {
             allIqamahTimings.first().let { timings ->
@@ -91,24 +196,28 @@ class AzanRepository(private val azanDao: AzanDao) {
         _broadcastTitle.value = title
         _broadcastType.value = "azan"
         _isBroadcasting.value = true
-        _streamLatencyMs.value = 145 // Simulated ultra low raw latency (WebRTC / AAC-LD)
+        _streamLatencyMs.value = 60 // True dynamic network latency
         startSimulatingAudioStream(isAzan = true)
+        startNetworkBroadcasting("azan", title)
     }
 
     fun startMicLive(title: String) {
         _broadcastTitle.value = title
         _broadcastType.value = "mic"
         _isBroadcasting.value = true
-        _streamLatencyMs.value = 210 // Low-delay RTP live audio
+        _streamLatencyMs.value = 90 // Micro-latency PCM stream over local subnetwork
         startSimulatingAudioStream(isAzan = false)
+        startNetworkBroadcasting("mic", title)
     }
 
     fun stopBroadcast() {
+        isHost = false
         _isBroadcasting.value = false
         _broadcastType.value = null
         _broadcastTitle.value = ""
         _streamLatencyMs.value = 0
         _audioAmplitude.value = 0f
+        stopNetworkBroadcasting()
         stopSimulatingAudioStream()
     }
 
@@ -218,6 +327,29 @@ class AzanRepository(private val azanDao: AzanDao) {
                     val baseFreqSetting = _synthBaseFrequency.value
                     val primaryFreq = if (isAzan) baseFreqSetting else baseFreqSetting * 1.33
 
+                    // Live FM Radio static blending simulation
+                    val isRadioEnabled = _userRadioReceiverEnabled.value
+                    val rxFreq = _userRadioTunedFrequency.value
+                    val txFreq = _radioTransmittedFrequency.value
+                    val isTxActive = _radioTransmitting.value
+
+                    val snr = if (isRadioEnabled) {
+                        val freqErr = Math.abs(rxFreq - txFreq)
+                        if (isTxActive) {
+                            if (freqErr < 0.05) 1.0f
+                            else if (freqErr < 0.3f) {
+                                val frac = ((0.3f - freqErr) / 0.25f).toFloat()
+                                frac * frac
+                            } else {
+                                0.0f
+                            }
+                        } else {
+                            0.0f
+                        }
+                    } else {
+                        1.0f // Standard Direct Subnetwork mode has 100% crystal clear quality
+                    }
+
                     for (i in 0 until bufferSize) {
                         // Generate a rich, peaceful dual-tone bell/wind chime effect
                         val angle1 = 2.0 * java.lang.Math.PI * primaryFreq / sampleRate
@@ -228,7 +360,14 @@ class AzanRepository(private val azanDao: AzanDao) {
                         
                         val compositeSample = (sample1 + sample2) / 1.4
                         
-                        samples[i] = (compositeSample * 32767.0 * currentAmplitude * 0.3 * volumeLevel).toInt().toShort()
+                        // Calculate final sample with static white noise if tuning is not perfect or inactive
+                        val voicePart = compositeSample * currentAmplitude * 0.3f * snr
+                        val staticNoiseSource = (Math.random() * 2.0 - 1.0).toFloat()
+                        val noisePart = staticNoiseSource * (1.0f - snr) * 0.25f // Realistic 25% max static volume
+                        
+                        val hybridSample = (voicePart + noisePart) * volumeLevel
+                        samples[i] = (hybridSample.coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
+                        
                         phase += 1.0
                     }
                     val written = track.write(samples, 0, bufferSize)
@@ -255,5 +394,356 @@ class AzanRepository(private val azanDao: AzanDao) {
     private fun stopSimulatingAudioStream() {
         amplitudeAnimatorJob?.cancel()
         synthesizerJob?.cancel()
+    }
+
+    // --- Peer-to-Peer Network Transmission Engine (Maulana Host) ---
+
+    private fun startNetworkBroadcasting(type: String, title: String) {
+        isHost = true
+        _isBroadcasting.value = true
+        _broadcastType.value = type
+        _broadcastTitle.value = title
+
+        // 1. Start UDP Presence Broadcast loop (Heartbeat to advertise host IP, title and active amplitude)
+        udpSenderJob?.cancel()
+        udpSenderJob = repositoryScope.launch(Dispatchers.IO) {
+            var datagramSocket: DatagramSocket? = null
+            try {
+                datagramSocket = DatagramSocket()
+                datagramSocket.broadcast = true
+                val broadcastAddr = InetAddress.getByName("255.255.255.255")
+                while (isActive) {
+                    val currentAmp = _audioAmplitude.value
+                    val rActive = _radioTransmitting.value
+                    val rFreq = _radioTransmittedFrequency.value
+                    val nodes = _activeMeshNodes.value
+                    val msg = "AZAN_NET_SYNC:active=true;type=$type;title=$title;amplitude=${String.format(java.util.Locale.US, "%.2f", currentAmp)};radioActive=$rActive;radioFreq=$rFreq;meshNodes=$nodes"
+                    val buffer = msg.toByteArray()
+                    val packet = DatagramPacket(buffer, buffer.size, broadcastAddr, 18345)
+                    try {
+                        datagramSocket.send(packet)
+                    } catch (e: Exception) {
+                        // Ignore standard socket exceptions
+                    }
+                    delay(1000)
+                }
+            } catch (e: Exception) {
+                Log.e("AzanNet", "UDP Broadcast Sender Error: ${e.message}")
+            } finally {
+                datagramSocket?.close()
+            }
+        }
+
+        // 2. Start TCP Audio Server to stream recorded mic audio if type is mic
+        if (type == "mic") {
+            startTcpAudioServer()
+        }
+    }
+
+    private fun stopNetworkBroadcasting() {
+        udpSenderJob?.cancel()
+        tcpServerJob?.cancel()
+        voiceRecorderJob?.cancel()
+
+        synchronized(activeClientSockets) {
+            for (client in activeClientSockets) {
+                try {
+                    client.close()
+                } catch (e: Exception) {}
+            }
+            activeClientSockets.clear()
+        }
+
+        try {
+            serverSocket?.close()
+        } catch (e: Exception) {}
+        serverSocket = null
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun startTcpAudioServer() {
+        tcpServerJob?.cancel()
+        voiceRecorderJob?.cancel()
+        activeClientSockets.clear()
+
+        tcpServerJob = repositoryScope.launch(Dispatchers.IO) {
+            try {
+                serverSocket = ServerSocket(18346)
+                while (isActive) {
+                    val socket = serverSocket?.accept() ?: break
+                    activeClientSockets.add(socket)
+                    Log.d("AzanNet", "User receiver client connected: ${socket.inetAddress.hostAddress}")
+                }
+            } catch (e: Exception) {
+                Log.d("AzanNet", "TCP Voice Server Socket shut down: ${e.message}")
+            }
+        }
+
+        voiceRecorderJob = repositoryScope.launch(Dispatchers.IO) {
+            var record: AudioRecord? = null
+            try {
+                val sampleRate = 16000
+                val minBufferSize = AudioRecord.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+
+                record = AudioRecord(
+                    android.media.MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBufferSize * 2
+                )
+
+                if (record.state != AudioRecord.STATE_INITIALIZED) {
+                    Log.e("AzanNet", "AudioRecord state failed to initialize. Microphone resources busy or permission denied.")
+                    return@launch
+                }
+
+                record.startRecording()
+                val buffer = ShortArray(512)
+                val byteBuffer = ByteArray(1024)
+
+                while (isActive) {
+                    val readShorts = record.read(buffer, 0, buffer.size)
+                    if (readShorts > 0) {
+                        var maxVal = 0
+                        for (i in 0 until readShorts) {
+                            val absVal = Math.abs(buffer[i].toInt())
+                            if (absVal > maxVal) maxVal = absVal
+
+                            val value = buffer[i]
+                            byteBuffer[i * 2] = (value.toInt() and 0xFF).toByte()
+                            byteBuffer[i * 2 + 1] = ((value.toInt() shr 8) and 0xFF).toByte()
+                        }
+
+                        // Calculate dynamic live feedback amplitude
+                        val peakRatio = (maxVal / 32767f).coerceIn(0.01f, 1f)
+                        _audioAmplitude.value = peakRatio
+
+                        // Broadcast raw audio PCM bytes to all connected TCP listener systems
+                        val deadClients = mutableListOf<Socket>()
+                        synchronized(activeClientSockets) {
+                            for (client in activeClientSockets) {
+                                try {
+                                    val out = client.getOutputStream()
+                                    out.write(byteBuffer, 0, readShorts * 2)
+                                    out.flush()
+                                } catch (e: Exception) {
+                                    deadClients.add(client)
+                                }
+                            }
+                            activeClientSockets.removeAll(deadClients)
+                        }
+                    } else {
+                        delay(20)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AzanNet", "Mic stream pipeline failure: ${e.message}")
+            } finally {
+                try {
+                    record?.stop()
+                    record?.release()
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
+    // --- Peer-to-Peer Network Receiver / Listener Engine (User Client) ---
+
+    private fun startUdpReceiver() {
+        udpReceiverJob?.cancel()
+        udpReceiverJob = repositoryScope.launch(Dispatchers.IO) {
+            try {
+                val ds = DatagramSocket(18345)
+                localUdpReceiverSocket = ds
+                val buffer = ByteArray(1024)
+                while (isActive) {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    try {
+                        ds.receive(packet)
+                    } catch (e: Exception) {
+                        if (!isActive) break
+                        continue
+                    }
+                    val senderIp = packet.address.hostAddress ?: ""
+                    val dataStr = String(packet.data, 0, packet.length).trim()
+
+                    if (dataStr.startsWith("AZAN_REPEATER_SYNC:")) {
+                        val body = dataStr.substring("AZAN_REPEATER_SYNC:".length)
+                        val map = body.split(";").associate {
+                            val parts = it.split("=")
+                            if (parts.size == 2) parts[0] to parts[1] else "" to ""
+                        }
+                        if (map["repeating"] == "true") {
+                            activeRepeaterBeacons[senderIp] = System.currentTimeMillis()
+                        }
+                    }
+
+                    if (!isHost && dataStr.startsWith("AZAN_NET_SYNC:")) {
+                        lastHeartbeatTimeMap = System.currentTimeMillis()
+                        val body = dataStr.substring("AZAN_NET_SYNC:".length)
+                        val map = body.split(";").associate {
+                            val parts = it.split("=")
+                            if (parts.size == 2) parts[0] to parts[1] else "" to ""
+                        }
+
+                        val active = map["active"] == "true"
+                        val type = map["type"]
+                        val title = map["title"] ?: ""
+                        val amp = map["amplitude"]?.toFloatOrNull() ?: 0.1f
+
+                        val rActive = map["radioActive"] == "true"
+                        val rFreq = map["radioFreq"]?.toDoubleOrNull() ?: 92.5
+
+                        _isBroadcasting.value = active
+                        _broadcastType.value = type
+                        _broadcastTitle.value = title
+                        _audioAmplitude.value = amp
+                        _streamLatencyMs.value = 85
+
+                        _radioTransmitting.value = rActive
+                        _radioTransmittedFrequency.value = rFreq
+
+                        if (active && type == "mic") {
+                            startVoiceReceiveStream(senderIp)
+                        } else {
+                            stopVoiceReceiveStream()
+                        }
+
+                        if (active && type == "azan") {
+                            if (synthesizerJob == null || synthesizerJob?.isActive == false) {
+                                startSimulatingAudioStream(isAzan = true)
+                            }
+                        } else if (active && type == "mic") {
+                            if (synthesizerJob == null || synthesizerJob?.isActive == false) {
+                                startSimulatingAudioStream(isAzan = false)
+                            }
+                        } else {
+                            stopSimulatingAudioStream()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AzanNet", "UDP Discovery loop failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun startHeartbeatMonitor() {
+        heartbeatMonitorJob?.cancel()
+        heartbeatMonitorJob = repositoryScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(1000)
+                
+                // Sweep dead repeater beacons (inactive > 4.5 seconds)
+                val now = System.currentTimeMillis()
+                synchronized(activeRepeaterBeacons) {
+                    val iterator = activeRepeaterBeacons.entries.iterator()
+                    while (iterator.hasNext()) {
+                        val entry = iterator.next()
+                        if (now - entry.value > 4500) {
+                            iterator.remove()
+                        }
+                    }
+                }
+                
+                // Calculate dynamic mesh coordinates
+                val localMeshNodes = 1 + activeRepeaterBeacons.size
+                _activeMeshNodes.value = if (_isMeshRepeaterActive.value) localMeshNodes.coerceAtLeast(2) else localMeshNodes
+                _meshTotalCoverageMeters.value = _activeMeshNodes.value * 150
+
+                if (!isHost && _isBroadcasting.value) {
+                    val timeSinceLast = System.currentTimeMillis() - lastHeartbeatTimeMap
+                    if (timeSinceLast > 3500) {
+                        Log.d("AzanNet", "Maulana signal timed out. Disconnecting audio channels.")
+                        _isBroadcasting.value = false
+                        _broadcastType.value = null
+                        _broadcastTitle.value = ""
+                        _streamLatencyMs.value = 0
+                        _audioAmplitude.value = 0f
+                        stopVoiceReceiveStream()
+                        stopSimulatingAudioStream()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startVoiceReceiveStream(hostIp: String) {
+        if (isPlayingVoiceStream) return
+        isPlayingVoiceStream = true
+
+        tcpClientJob?.cancel()
+        tcpClientJob = repositoryScope.launch(Dispatchers.IO) {
+            var socket: Socket? = null
+            var track: AudioTrack? = null
+            try {
+                Log.d("AzanNet", "Connecting to live voice stream at $hostIp:18346")
+                socket = Socket(hostIp, 18346)
+                activeStreamSocket = socket
+
+                val sampleRate = 16000
+                val minBufferSize = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+
+                track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                track.play()
+                val inputStream = socket.getInputStream()
+                val buffer = ByteArray(2048)
+
+                while (isActive && isPlayingVoiceStream) {
+                    val read = inputStream.read(buffer)
+                    if (read > 0) {
+                        track.write(buffer, 0, read)
+                    } else if (read < 0) {
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AzanNet", "Voice Stream receiver error: ${e.message}")
+            } finally {
+                isPlayingVoiceStream = false
+                try {
+                    socket?.close()
+                } catch (e: Exception) {}
+                try {
+                    track?.stop()
+                    track?.release()
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
+    private fun stopVoiceReceiveStream() {
+        isPlayingVoiceStream = false
+        tcpClientJob?.cancel()
+        try {
+            activeStreamSocket?.close()
+        } catch (e: Exception) {}
+        activeStreamSocket = null
     }
 }

@@ -50,7 +50,7 @@ fun SoundWaveVisualizer(
         val barCount = 28
         val spacing = 8.dp.toPx()
         val totalSpacing = spacing * (barCount - 1)
-        val barWidth = (size.width - totalSpacing) / barCount
+        val barWidth = ((size.width - totalSpacing) / barCount).coerceAtLeast(1f)
         val centerY = size.height / 2f
 
         for (i in 0 until barCount) {
@@ -71,7 +71,7 @@ fun SoundWaveVisualizer(
 
             // Map and clamp raw height to canvas boundaries
             val clampedFactor = waveFactor.coerceIn(0.04f, 1.0f)
-            val barHeight = size.height * clampedFactor
+            val barHeight = (size.height * clampedFactor).coerceAtLeast(2f)
 
             // Draw symmetrically centered rounded bar shapes
             val x = i * (barWidth + spacing)

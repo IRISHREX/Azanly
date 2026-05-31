@@ -28,7 +28,9 @@ abstract class AzanDatabase : RoomDatabase() {
                     context.applicationContext,
                     AzanDatabase::class.java,
                     "azan_mahalla_db"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

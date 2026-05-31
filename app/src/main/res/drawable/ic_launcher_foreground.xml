@@ -4,61 +4,44 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     
-    <!-- Central Golden Mosque Dome -->
-    <!-- Dome Base and structure -->
+    <!-- Elegant Crescent Moon (Left Side) -->
     <path
         android:fillColor="#FBBF24"
-        android:pathData="M38,72 L70,72 L70,62 C70,52 63,44 54,44 C45,44 38,52 38,62 Z" />
-        
-    <!-- Main Arch Doorway -->
-    <path
-        android:fillColor="#022C22"
-        android:pathData="M50,72 C50,68 51,65 54,65 C57,65 58,68 58,72 Z" />
+        android:pathData="M54,24 A30,30 0 0,0 54,84 A24,24 0 0,1 54,24" />
 
-    <!-- Minaret Pinnacle Spire -->
+    <!-- Modern Microphone (Center-Right) -->
+    <!-- Microphone Capsule (Main body) -->
     <path
-        android:strokeColor="#FBBF24"
-        android:strokeWidth="2.5"
-        android:strokeLineCap="round"
-        android:pathData="M54,44 L54,34" />
-        
-    <!-- Spire Star / Crescent Beacon -->
+        android:fillColor="#FFFFFF"
+        android:pathData="M61,36 h12 a6,6 0 0,1 6,6 v14 a6,6 0 0,1 -6,6 h -12 a6,6 0 0,1 -6,-6 v -14 a6,6 0 0,1 6,-6 z" />
+
+    <!-- Capsule Mesh Inner highlight/accent -->
     <path
         android:fillColor="#FBBF24"
-        android:pathData="M54,34 C55,34 56,33 56,32 C56,31 54,29 54,29 C54,29 52,31 52,32 C52,33 53,34 54,34 Z" />
+        android:pathData="M63,42 h8 a4,4 0 0,1 4,4 v4 a4,4 0 0,1 -4,4 h-8 a4,4 0 0,1 -4,-4 v-4 a4,4 0 0,1 4,-4 z" />
 
-    <!-- LHS Acoustic Radiating Sound Waves -->
-    <!-- Inner Left Wave -->
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.8"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M30,52 A14,14 0 0 0 30,68" />
-        
-    <!-- Outer Left Wave -->
+    <!-- U-Shape Cradle -->
     <path
         android:strokeColor="#FBBF24"
-        android:strokeWidth="2.8"
+        android:strokeWidth="3.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="M23,45 A23,23 0 0 0 23,75" />
+        android:pathData="M53,48 v12 a14,14 0 0,0 28,0 v -12" />
 
-    <!-- RHS Acoustic Radiating Sound Waves -->
-    <!-- Inner Right Wave -->
+    <!-- Vertical Connection Stem -->
     <path
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="2.8"
+        android:strokeWidth="3.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="M78,52 A14,14 0 0 1 78,68" />
-        
-    <!-- Outer Right Wave -->
+        android:pathData="M67,74 L67,84" />
+
+    <!-- Heavy Elegant Base -->
     <path
         android:strokeColor="#FBBF24"
-        android:strokeWidth="2.8"
+        android:strokeWidth="3.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="M85,45 A23,23 0 0 1 85,75" />
+        android:pathData="M57,84 L77,84" />
 
 </vector>
