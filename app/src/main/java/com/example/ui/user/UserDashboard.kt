@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -177,10 +179,13 @@ fun UserDashboard(
         ) {
             val subTabs = listOf(
                 Triple("Home & Prayers", Icons.Default.Home, "home"),
-                Triple("Audio Channel", Icons.Default.PlayArrow, "audio"),
+                Triple("Satellite Feed", Icons.Default.PlayArrow, "satellite"),
+                Triple("P2P Walkie Talkie", Icons.Default.Phone, "walkie"),
+                Triple("RF Links & Radars", Icons.Default.Refresh, "radars"),
                 Triple("Qibla Compass", Icons.Default.LocationOn, "qibla"),
                 Triple("Notices & Sadaqah", Icons.Default.Notifications, "community"),
-                Triple("Profile & Settings", Icons.Default.Person, "profile")
+                Triple("My Profile", Icons.Default.Person, "profile"),
+                Triple("System Settings", Icons.Default.Settings, "settings")
             )
             subTabs.forEachIndexed { index, tab ->
                 val isSelected = userSelectedTab == index
@@ -226,7 +231,7 @@ fun UserDashboard(
                     viewModel = viewModel,
                     onSupportClick = { showDonationDialog = true }
                 )
-                1 -> UserBroadcastScreen(
+                1 -> UserSatelliteScreen(
                     isBroadcasting = isBroadcasting,
                     bType = bType,
                     bTitle = bTitle,
@@ -237,6 +242,13 @@ fun UserDashboard(
                     streamLatencyMs = streamLatencyMs,
                     onMuteToggle = { isStreamMutedLocal = !isStreamMutedLocal },
                     onVolumeChange = { soundVolume = it },
+                    activeLogs = activeLogs,
+                    viewModel = viewModel
+                )
+                2 -> UserWalkieScreen(
+                    viewModel = viewModel
+                )
+                3 -> UserRFConnectionScreen(
                     userRadioReceiverEnabled = userRadioReceiverEnabled,
                     userRadioTunedFreq = userRadioTunedFreq,
                     isRadioTransmitting = isRadioTransmitting,
@@ -244,10 +256,9 @@ fun UserDashboard(
                     isMeshRepeaterActive = isMeshRepeaterActive,
                     activeMeshNodes = activeMeshNodes,
                     meshTotalCoverage = meshTotalCoverage,
-                    activeLogs = activeLogs,
                     viewModel = viewModel
                 )
-                2 -> UserCompassScreen(
+                4 -> UserCompassScreen(
                     qiblaBearing = qiblaBearing,
                     simHeading = simHeading,
                     vibrateOnAlert = vibrateOnAlert,
@@ -268,12 +279,12 @@ fun UserDashboard(
                     },
                     viewModel = viewModel
                 )
-                3 -> UserCommunityScreen(
+                5 -> UserCommunityScreen(
                     activeNotices = activeNotices,
                     totalDonationsList = totalDonationsList,
                     onSupportClick = { showDonationDialog = true }
                 )
-                4 -> UserProfileSettingsScreen(
+                6 -> UserProfileScreen(
                     profileName = profileName,
                     profileEmail = profileEmail,
                     profileMemberId = profileMemberId,
@@ -281,6 +292,9 @@ fun UserDashboard(
                     onProfileEmailChange = { profileEmail = it },
                     onProfileMemberIdChange = { profileMemberId = it },
                     totalDonationsList = totalDonationsList,
+                    viewModel = viewModel
+                )
+                7 -> UserSettingsScreen(
                     currentTheme = currentTheme,
                     overrideSilence = overrideSilence,
                     muteDuringWork = muteDuringWork,
@@ -482,7 +496,7 @@ private fun UserHomeScreen(
 }
 
 @Composable
-private fun UserBroadcastScreen(
+private fun UserSatelliteScreen(
     isBroadcasting: Boolean,
     bType: String?,
     bTitle: String,
@@ -493,13 +507,6 @@ private fun UserBroadcastScreen(
     streamLatencyMs: Int,
     onMuteToggle: () -> Unit,
     onVolumeChange: (Float) -> Unit,
-    userRadioReceiverEnabled: Boolean,
-    userRadioTunedFreq: Double,
-    isRadioTransmitting: Boolean,
-    radioTransmittedFreq: Double,
-    isMeshRepeaterActive: Boolean,
-    activeMeshNodes: Int,
-    meshTotalCoverage: Int,
     activeLogs: List<String>,
     viewModel: AzanViewModel
 ) {
@@ -508,26 +515,32 @@ private fun UserBroadcastScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)
     ) {
+        // Live satellite feed card
         item {
-            val liveCardBorderColor by animateColorAsState(
-                targetValue = if (isBroadcasting) MaterialTheme.colorScheme.primary else Color.Transparent,
-                label = "color"
-            )
-
             Card(
-                modifier = Modifier.fillMaxWidth().testTag("user_audio_player"),
+                modifier = Modifier.fillMaxWidth().testTag("live_broadcast_card"),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isBroadcasting) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                                  else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                  else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
                 ),
-                border = BorderStroke(1.dp, liveCardBorderColor.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(18.dp)
+                border = BorderStroke(1.dp, if (isBroadcasting) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (isBroadcasting) MaterialTheme.colorScheme.primary else Color.Gray))
-                            Text(if (isBroadcasting) "LIVE BROADCAST SECURE" else "MASJID DORMANT", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = if (isBroadcasting) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isBroadcasting) Color(0xFF10B981) else Color.Gray)
+                            )
+                            Text(
+                                if (isBroadcasting) "SATELLITE BROADCAST ACTIVATED" else "TERMINAL DORMANT",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isBroadcasting) Color(0xFF10B981) else Color.Gray
+                            )
                         }
                         if (isBroadcasting) {
                             Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.primary).padding(horizontal = 5.dp, vertical = 2.dp)) {
@@ -557,6 +570,267 @@ private fun UserBroadcastScreen(
             }
         }
 
+        // Process logs
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Process Daemon System Logs", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (activeLogs.isEmpty()) {
+                            Text("Process pending FCM push inputs...", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                        } else {
+                            activeLogs.takeLast(4).forEach { log ->
+                                Text(log, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserWalkieScreen(
+    viewModel: AzanViewModel
+) {
+    val dspNoiseFilterActive by viewModel.dspNoiseFilterActive.collectAsState()
+    val squelchThresholdDb by viewModel.squelchThresholdDb.collectAsState()
+    val isWalkieTalkieModeEnabled by viewModel.isWalkieTalkieModeEnabled.collectAsState()
+    val isPttPressed by viewModel.isPttPressed.collectAsState()
+    val walkieTalkieChannel by viewModel.walkieTalkieChannel.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)
+    ) {
+        // P2P Walkie Talkie Intercom Panel
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("walkie_talkie_panel_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isWalkieTalkieModeEnabled) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.15f)
+                                  else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                ),
+                border = BorderStroke(1.dp, if (isWalkieTalkieModeEnabled) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text("P2P Walkie-Talkie Intercom", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                            Text("Direct decentralized voice channel link", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = isWalkieTalkieModeEnabled,
+                            onCheckedChange = { viewModel.toggleWalkieTalkieMode(it) },
+                            modifier = Modifier.testTag("walkie_talkie_mode_switch")
+                        )
+                    }
+
+                    if (isWalkieTalkieModeEnabled) {
+                        HorizontalDivider()
+
+                        // Subchannel Selector
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Active Channel Select", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                (1..5).forEach { channelNum ->
+                                    val isSelected = walkieTalkieChannel == channelNum
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .border(
+                                                border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.secondary else Color.Gray.copy(alpha = 0.3f)),
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f) else Color.Transparent)
+                                            .clickable { viewModel.updateWalkieTalkieChannel(channelNum) }
+                                            .padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("CH $channelNum", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+
+                        // Dynamic Push to Talk trigger button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isPttPressed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
+                                )
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            viewModel.startPttTransmission(walkieTalkieChannel)
+                                            tryAwaitRelease()
+                                            viewModel.stopPttTransmission()
+                                        }
+                                    )
+                                }
+                                .border(
+                                    BorderStroke(
+                                        1.dp,
+                                        if (isPttPressed) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+                                    ),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .testTag("ptt_talk_trigger_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(
+                                    imageVector = if (isPttPressed) Icons.Default.Phone else Icons.Default.PlayArrow,
+                                    contentDescription = "PTT Icon",
+                                    tint = if (isPttPressed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Text(
+                                    if (isPttPressed) "TRANSMITTING ALIVE LIVE..." else "HOLD AND SPEAK (PTT)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isPttPressed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary
+                                )
+                                Text(
+                                    "Latency delay synchronized to ~25ms",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 8.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Advanced Noise reduction controls (DSP & Squelch Gate)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("advanced_filters_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Advanced RF Noise Suppression Filters",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = "Suppress atmospheric background hiss and speaker feedback in hard-to-reach sub-channels.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    // 1. DSP Active Noise Filter Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("DSP Active Noise Filter", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Aggressive spectral subtraction on radio waves.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = dspNoiseFilterActive,
+                            onCheckedChange = { viewModel.toggleDspNoiseFilter(it) },
+                            modifier = Modifier.testTag("dsp_noise_filter_switch")
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    // 2. Interactive Squelch Threshold slider
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Squelch Threshold Gate", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("${squelchThresholdDb} dB", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Text(
+                            text = "Mutes the output completely when the carrier signal ratio drops below a certain quality standard.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Slider(
+                            value = squelchThresholdDb.toFloat(),
+                            onValueChange = { viewModel.updateSquelchThreshold(it.toInt()) },
+                            valueRange = -80f..0f,
+                            modifier = Modifier.testTag("squelch_slider")
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Fully Open (-80dB)", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
+                            Text("Fully Closed (0dB)", style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserRFConnectionScreen(
+    userRadioReceiverEnabled: Boolean,
+    userRadioTunedFreq: Double,
+    isRadioTransmitting: Boolean,
+    radioTransmittedFreq: Double,
+    isMeshRepeaterActive: Boolean,
+    activeMeshNodes: Int,
+    meshTotalCoverage: Int,
+    viewModel: AzanViewModel
+) {
+    // Infinite transition for sweeping radar line
+    val infiniteTransition = rememberInfiniteTransition(label = "radarSweep")
+    val sweepAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "angle"
+    )
+
+    // Flowing dash offset for connected topology path
+    val dashPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 60f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dashPhase"
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)
+    ) {
+        // FM Tuner Link & Mesh Relay Link
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Card(
@@ -598,20 +872,214 @@ private fun UserBroadcastScreen(
             }
         }
 
+        // Seamless connection topology monitor
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Process Daemon System Logs", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        if (activeLogs.isEmpty()) {
-                            Text("Process pending FCM push inputs...", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            val isFreqMatched = Math.abs(userRadioTunedFreq - radioTransmittedFreq) < 0.1
+            val isLinkActive = userRadioReceiverEnabled && isRadioTransmitting && isFreqMatched
+
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("topology_radar_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isLinkActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f)
+                                  else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                ),
+                border = BorderStroke(1.dp, if (isLinkActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Seamless Link Tracker & Topology Monitor",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    // Draw the network topology on Canvas
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(110.dp)
+                            .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                    ) {
+                        val w = size.width
+                        val h = size.height
+
+                        // Node coordinates
+                        val emitterPoint = androidx.compose.ui.geometry.Offset(w * 0.18f, h * 0.5f)
+                        val repeaterPoint = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.22f)
+                        val receiverPoint = androidx.compose.ui.geometry.Offset(w * 0.82f, h * 0.5f)
+
+                        // 1. Draw connection lines
+                        val pathColor = if (isLinkActive) Color(0xFF10B981) 
+                                        else if (userRadioReceiverEnabled && isRadioTransmitting) Color(0xFFFBBF24) // mismatched freq
+                                        else Color.Gray.copy(alpha = 0.4f)
+
+                        val isDashed = !isLinkActive
+                        val widthPx = if (isDashed) 2.dp.toPx() else 3.dp.toPx()
+                        val pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                            if (isDashed) floatArrayOf(10f, 10f) else floatArrayOf(15f, 15f),
+                            if (isDashed) dashPhase else -dashPhase
+                        )
+
+                        // Path Emitter -> Repeater -> Receiver
+                        drawLine(color = pathColor, start = emitterPoint, end = repeaterPoint, strokeWidth = widthPx, pathEffect = pathEffect)
+                        drawLine(color = pathColor, start = repeaterPoint, end = receiverPoint, strokeWidth = widthPx, pathEffect = pathEffect)
+
+                        // If mismatched / out of sync, draw warning lightning bolt in the center
+                        if (userRadioReceiverEnabled && isRadioTransmitting && !isFreqMatched) {
+                            drawCircle(
+                                color = Color(0xFFEF4444),
+                                radius = 10.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.6f)
+                            )
+                            // Draw static lightning symbols
+                            drawLine(
+                                color = Color(0xFFEF4444),
+                                start = androidx.compose.ui.geometry.Offset(w * 0.5f - 8f, h * 0.6f - 8f),
+                                end = androidx.compose.ui.geometry.Offset(w * 0.5f + 8f, h * 0.6f + 8f),
+                                strokeWidth = 2.dp.toPx()
+                            )
+                        }
+
+                        // 2. Draw Node Circles
+                        drawCircle(color = if (isRadioTransmitting) Color(0xFF0F766E) else Color.Gray, radius = 14.dp.toPx(), center = emitterPoint)
+                        drawCircle(color = if (isMeshRepeaterActive) Color(0xFFD97706) else Color.Gray, radius = 11.dp.toPx(), center = repeaterPoint)
+                        drawCircle(color = if (userRadioReceiverEnabled) Color(0xFF0284C7) else Color.Gray, radius = 14.dp.toPx(), center = receiverPoint)
+                    }
+
+                    // Labels and quick tuners
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Mosque TX: ${String.format(java.util.Locale.US, "%.1f MHz", radioTransmittedFreq)}" + (if (isRadioTransmitting) " [Active]" else " [Off]"),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "My RX Tuner: ${String.format(java.util.Locale.US, "%.1f MHz", userRadioTunedFreq)}" + (if (userRadioReceiverEnabled) " [Tuned]" else " [Off]"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isFreqMatched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        if (userRadioReceiverEnabled && isRadioTransmitting && !isFreqMatched) {
+                            Button(
+                                onClick = { viewModel.updateUserRadioTunedFrequency(radioTransmittedFreq) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.testTag("auto_tune_rx_btn")
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Auto-Tune Link", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (isLinkActive) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    "Connected Lossless Link",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF047857),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         } else {
-                            activeLogs.takeLast(4).forEach { log ->
-                                Text(log, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                            Text(
+                                "No Active Link",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sweep radar card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("sweeping_radar_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Active Mahalla Users Scan Radar",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Real-time P2P beacon scanning to find active neighbors within mosque boundary coverage.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Draw simulated circular radar sweep
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
+                            .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                            val center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
+                            val maxRadius = Math.min(size.width, size.height) * 0.45f
+
+                            // Draw concentric distance circles
+                            drawCircle(color = Color.Green.copy(alpha = 0.12f), radius = maxRadius * 0.3f, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+                            drawCircle(color = Color.Green.copy(alpha = 0.12f), radius = maxRadius * 0.6f, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+                            drawCircle(color = Color.Green.copy(alpha = 0.12f), radius = maxRadius, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+
+                            // Draw crosshair axes
+                            drawLine(color = Color.Green.copy(alpha = 0.08f), start = androidx.compose.ui.geometry.Offset(center.x - maxRadius, center.y), end = androidx.compose.ui.geometry.Offset(center.x + maxRadius, center.y))
+                            drawLine(color = Color.Green.copy(alpha = 0.08f), start = androidx.compose.ui.geometry.Offset(center.x, center.y - maxRadius), end = androidx.compose.ui.geometry.Offset(center.x, center.y + maxRadius))
+
+                            // Draw the dynamic sweeping line
+                            val angleRad = Math.toRadians(sweepAngle.toDouble())
+                            val endX = center.x + maxRadius * Math.cos(angleRad).toFloat()
+                            val endY = center.y + maxRadius * Math.sin(angleRad).toFloat()
+                            drawLine(color = Color.Green.copy(alpha = 0.7f), start = center, end = androidx.compose.ui.geometry.Offset(endX, endY), strokeWidth = 2.dp.toPx())
+
+                            // Draw simulated neighbor nodes blinking
+                            val nodes = listOf(
+                                androidx.compose.ui.geometry.Offset(center.x - maxRadius * 0.4f, center.y - maxRadius * 0.3f) to "Node 4",
+                                androidx.compose.ui.geometry.Offset(center.x + maxRadius * 0.6f, center.y + maxRadius * 0.2f) to "Node 9",
+                                androidx.compose.ui.geometry.Offset(center.x - maxRadius * 0.2f, center.y + maxRadius * 0.5f) to "Node 2"
+                            )
+                            val rad1 = 4.dp.toPx()
+                            val rad2 = 8.dp.toPx()
+                            nodes.forEach { (pos, label) ->
+                                drawCircle(color = Color.Green, radius = rad1, center = pos)
+                                drawCircle(color = Color.Green.copy(alpha = 0.3f), radius = rad2, center = pos)
+                            }
+                        }
+                    }
+
+                    // Blinking Node List Summary
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("CH-1 Terminal [Active]", "CH-3 Repeat [Relaying]", "CH-4 Terminal [Idle]").forEach { node ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Color.Black.copy(alpha = 0.04f), RoundedCornerShape(6.dp))
+                                    .padding(vertical = 4.dp, horizontal = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(node, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.Green.copy(alpha = 0.8f))
                             }
                         }
                     }
@@ -832,7 +1300,7 @@ private fun UserCommunityScreen(
 }
 
 @Composable
-private fun UserProfileSettingsScreen(
+private fun UserProfileScreen(
     profileName: String,
     profileEmail: String,
     profileMemberId: String,
@@ -840,12 +1308,6 @@ private fun UserProfileSettingsScreen(
     onProfileEmailChange: (String) -> Unit,
     onProfileMemberIdChange: (String) -> Unit,
     totalDonationsList: List<DonationRecordEntity>,
-    currentTheme: AppTheme,
-    overrideSilence: Boolean,
-    muteDuringWork: Boolean,
-    mutedPrayers: Set<String>,
-    onMutedPrayersChange: (Set<String>) -> Unit,
-    synthBaseFrequency: Double,
     viewModel: AzanViewModel
 ) {
     LazyColumn(
@@ -853,6 +1315,139 @@ private fun UserProfileSettingsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)
     ) {
+        // 1. Live Digital ID / Official Mosque Supporter Card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("official_supporter_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                ),
+                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "MAHALLA MOSQUE TRUST",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                "OFFICIAL MEMBER CARD",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = profileName.split(" ").map { it.take(1).uppercase() }.joinToString(""),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = profileName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "ID: ${profileMemberId.ifBlank { "M-0000" }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = profileEmail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Barcode graphic
+                    androidx.compose.foundation.Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(38.dp)
+                            .background(Color.White, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        val w = size.width
+                        val h = size.height
+                        val bars = 36
+                        val step = w / bars
+                        // Draw vector simulated barcode
+                        for (i in 0 until bars) {
+                            val active = (i % 3 != 0) && (i % 7 != 1)
+                            if (active) {
+                                val barWidth = if (i % 5 == 0) step * 0.7f else step * 0.35f
+                                drawRect(
+                                    color = Color.Black,
+                                    topLeft = androidx.compose.ui.geometry.Offset(i * step, 0f),
+                                    size = androidx.compose.ui.geometry.Size(barWidth, h)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "STATUS: VERIFIED SUPPORTER",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "ISSUED VIA MOBILE NODE",
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Profile Editor Form Card
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -860,29 +1455,6 @@ private fun UserProfileSettingsScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(
-                            modifier = Modifier.size(54.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = profileName.split(" ").map { it.take(1).uppercase() }.joinToString(""),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                        Column {
-                            Text(profileName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(profileEmail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f), modifier = Modifier.padding(top = 2.dp)) {
-                                Text("Active Supporter", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
                     Text("Account and Member Management", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     OutlinedTextField(value = profileName, onValueChange = onProfileNameChange, label = { Text("Display Name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("profile_name_edit_input"))
                     OutlinedTextField(value = profileEmail, onValueChange = onProfileEmailChange, label = { Text("Email Address") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("profile_email_edit_input"))
@@ -912,7 +1484,25 @@ private fun UserProfileSettingsScreen(
                 }
             }
         }
+    }
+}
 
+@Composable
+private fun UserSettingsScreen(
+    currentTheme: AppTheme,
+    overrideSilence: Boolean,
+    muteDuringWork: Boolean,
+    mutedPrayers: Set<String>,
+    onMutedPrayersChange: (Set<String>) -> Unit,
+    synthBaseFrequency: Double,
+    viewModel: AzanViewModel
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)
+    ) {
+        // Aesthetics theme selector
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -943,6 +1533,7 @@ private fun UserProfileSettingsScreen(
             }
         }
 
+        // Sound settings
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),

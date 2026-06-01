@@ -190,6 +190,55 @@ class AzanViewModel(
     val activeMeshNodes: StateFlow<Int> = repository.activeMeshNodes
     val meshTotalCoverageMeters: StateFlow<Int> = repository.meshTotalCoverageMeters
 
+    // --- Noise Reduction & Squelch Controls ---
+    val dspNoiseFilterActive: StateFlow<Boolean> = repository.dspNoiseFilterActive
+    val squelchThresholdDb: StateFlow<Int> = repository.squelchThresholdDb
+
+    // --- Walkie-Talkie P2P Intercom ---
+    val isWalkieTalkieModeEnabled: StateFlow<Boolean> = repository.isWalkieTalkieModeEnabled
+    val isPttPressed: StateFlow<Boolean> = repository.isPttPressed
+    val walkieTalkieChannel: StateFlow<Int> = repository.walkieTalkieChannel
+
+    fun toggleDspNoiseFilter(enabled: Boolean) {
+        repository.toggleDspNoiseFilter(enabled)
+        addSystemLog("DSP Noise attenuation / static filter " + (if (enabled) "activated" else "bypassed"))
+    }
+
+    fun updateSquelchThreshold(db: Int) {
+        repository.updateSquelchThreshold(db)
+        if (db == -80) {
+            addSystemLog("Squelch gate fully opened (-80dB, raw static hiss allowed)")
+        } else {
+            addSystemLog("Squelch gate calibrated to: ${db} dB")
+        }
+    }
+
+    fun toggleWalkieTalkieMode(enabled: Boolean) {
+        repository.toggleWalkieTalkieMode(enabled)
+        if (enabled) {
+            addSystemLog("📻 Walkie-Talkie Mode initiated. Hold button to speak.")
+        } else {
+            addSystemLog("Walkie-Talkie Mode closed.")
+        }
+    }
+
+    fun updateWalkieTalkieChannel(channel: Int) {
+        repository.updateWalkieTalkieChannel(channel)
+        addSystemLog("Walkie-Talkie sub-channel selected: Channel $channel")
+    }
+
+    fun startPttTransmission(channel: Int) {
+        repository.toggleWalkieTalkieMode(true)
+        repository.updateWalkieTalkieChannel(channel)
+        repository.startPttTransmission(channel)
+        addSystemLog("🎙️ [Walkie-Talkie] TX started on Sub-Channel $channel. *Chirp-in static beep-on*")
+    }
+
+    fun stopPttTransmission() {
+        repository.stopPttTransmission()
+        addSystemLog("🔇 [Walkie-Talkie] TX completed. *Roger beep, back to RX listening*")
+    }
+
     fun toggleRadioTransmitting(enabled: Boolean) {
         repository.toggleRadioTransmitting(enabled)
         addSystemLog("Mosque FM RF Transmitter " + (if (enabled) "enabled" else "disabled"))

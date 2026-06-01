@@ -91,6 +91,23 @@ class AzanRepository(private val azanDao: AzanDao) {
     private val _meshTotalCoverageMeters = MutableStateFlow(150)
     val meshTotalCoverageMeters: StateFlow<Int> = _meshTotalCoverageMeters.asStateFlow()
 
+    // --- Noise Reduction & Squelch Filter States ---
+    private val _dspNoiseFilterActive = MutableStateFlow(true)
+    val dspNoiseFilterActive: StateFlow<Boolean> = _dspNoiseFilterActive.asStateFlow()
+
+    private val _squelchThresholdDb = MutableStateFlow(-45) // range -80 dB to 0 dB
+    val squelchThresholdDb: StateFlow<Int> = _squelchThresholdDb.asStateFlow()
+
+    // --- Walkie-Talkie P2P Intercom States ---
+    private val _isWalkieTalkieModeEnabled = MutableStateFlow(false)
+    val isWalkieTalkieModeEnabled: StateFlow<Boolean> = _isWalkieTalkieModeEnabled.asStateFlow()
+
+    private val _isPttPressed = MutableStateFlow(false)
+    val isPttPressed: StateFlow<Boolean> = _isPttPressed.asStateFlow()
+
+    private val _walkieTalkieChannel = MutableStateFlow(3) // sub-channels 1, 2, 3, 4, 5
+    val walkieTalkieChannel: StateFlow<Int> = _walkieTalkieChannel.asStateFlow()
+
     fun toggleRadioTransmitting(enabled: Boolean) {
         _radioTransmitting.value = enabled
     }
@@ -105,6 +122,25 @@ class AzanRepository(private val azanDao: AzanDao) {
 
     fun updateUserRadioTunedFrequency(freq: Double) {
         _userRadioTunedFrequency.value = freq
+    }
+
+    fun toggleDspNoiseFilter(enabled: Boolean) {
+        _dspNoiseFilterActive.value = enabled
+    }
+
+    fun updateSquelchThreshold(db: Int) {
+        _squelchThresholdDb.value = db
+    }
+
+    fun toggleWalkieTalkieMode(enabled: Boolean) {
+        _isWalkieTalkieModeEnabled.value = enabled
+        if (!enabled) {
+            _isPttPressed.value = false
+        }
+    }
+
+    fun updateWalkieTalkieChannel(channel: Int) {
+        _walkieTalkieChannel.value = channel.coerceIn(1, 5)
     }
 
     fun toggleMeshRepeater(enabled: Boolean) {
@@ -219,6 +255,21 @@ class AzanRepository(private val azanDao: AzanDao) {
         _audioAmplitude.value = 0f
         stopNetworkBroadcasting()
         stopSimulatingAudioStream()
+    }
+
+    fun startPttTransmission(channel: Int) {
+        _isPttPressed.value = true
+        _broadcastTitle.value = "Walkie-Talkie Intercom (Ch $channel)"
+        _broadcastType.value = "walkie"
+        _isBroadcasting.value = true
+        _streamLatencyMs.value = 45 // ultra-low latency for walkie talkie
+        startSimulatingAudioStream(isAzan = false)
+        startNetworkBroadcasting("walkie", "Walkie-Talkie Intercom (Ch $channel)")
+    }
+
+    fun stopPttTransmission() {
+        _isPttPressed.value = false
+        stopBroadcast()
     }
 
     // --- Notice Actions ---
@@ -361,12 +412,32 @@ class AzanRepository(private val azanDao: AzanDao) {
                         val compositeSample = (sample1 + sample2) / 1.4
                         
                         // Calculate final sample with static white noise if tuning is not perfect or inactive
-                        val voicePart = compositeSample * currentAmplitude * 0.3f * snr
+                        val voicePart = (compositeSample.toFloat() * currentAmplitude * 0.3f * snr)
                         val staticNoiseSource = (Math.random() * 2.0 - 1.0).toFloat()
-                        val noisePart = staticNoiseSource * (1.0f - snr) * 0.25f // Realistic 25% max static volume
                         
-                        val hybridSample = (voicePart + noisePart) * volumeLevel
-                        samples[i] = (hybridSample.coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
+                        // Noise reduction attenuation: if active, attenuate noise significantly (from 0.25f to 0.02f)
+                        val isNoiseFilterActive = _dspNoiseFilterActive.value
+                        val noiseVolumeScale = if (isNoiseFilterActive) 0.02f else 0.25f
+                        val noisePart = staticNoiseSource * (1.0f - snr) * noiseVolumeScale
+                        
+                        // Squelch Gate checks: if the signal quality is below the squelch gate threshold, mute static completely.
+                        // Map -80dB (fully open) to 0dB (fully closed) into required SNR ratio
+                        val squelchThreshold = _squelchThresholdDb.value
+                        val squelchRequiredSnr = (squelchThreshold + 80f) / 80f
+                        
+                        val passedSquelch = if (isRadioEnabled) {
+                            snr >= squelchRequiredSnr.coerceIn(0.01f, 0.95f)
+                        } else {
+                            true
+                        }
+
+                        val finalAudioSample = if (passedSquelch) {
+                            (voicePart + noisePart) * volumeLevel
+                        } else {
+                            0f
+                        }
+
+                        samples[i] = (finalAudioSample.coerceIn(-1.0f, 1.0f) * 32767.0f).toInt().toShort()
                         
                         phase += 1.0
                     }
@@ -434,8 +505,8 @@ class AzanRepository(private val azanDao: AzanDao) {
             }
         }
 
-        // 2. Start TCP Audio Server to stream recorded mic audio if type is mic
-        if (type == "mic") {
+        // 2. Start TCP Audio Server to stream recorded mic audio if type is mic or walkie
+        if (type == "mic" || type == "walkie") {
             startTcpAudioServer()
         }
     }
